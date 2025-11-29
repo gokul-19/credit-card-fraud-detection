@@ -1,107 +1,141 @@
 # ============================================================
 # STREAMLIT FRAUD DETECTION DASHBOARD 
 # ============================================================
+import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
-from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-import joblib
 import numpy as np
+import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+import os
+import subprocess
 
-# -----------------------------
+st.set_page_config(page_title="Credit Card Fraud Detection Dashboard", layout="wide")
+sns.set(style="whitegrid")
+
+# --------------------------------------------------------------
+# 1. DOWNLOAD DATASET FROM KAGGLE
+# --------------------------------------------------------------
+DATASET_NAME = "mlg-ulb/creditcardfraud"
+CSV_FILE = "creditcard.csv"
+
+st.sidebar.title("⚡ Dataset Loader")
+
+if not os.path.exists(CSV_FILE):
+    st.sidebar.warning("Downloading dataset from Kaggle… please wait.")
+
+    os.environ['KAGGLE_USERNAME'] = st.secrets["KAGGLE_USERNAME"]
+    os.environ['KAGGLE_KEY'] = st.secrets["KAGGLE_KEY"]
+
+    # Download & unzip
+    subprocess.run(
+        f"kaggle datasets download -d {DATASET_NAME} --unzip",
+        shell=True,
+        check=True
+    )
+    st.sidebar.success("Dataset downloaded successfully!")
+
 # Load dataset
-# -----------------------------
-df = pd.read_csv("creditcard.csv")  # Replace with your dataset
+df = pd.read_csv(CSV_FILE)
 
-# Feature engineering
-df['balanceDiffOrig'] = df['oldbalanceOrg'] - df['newbalanceOrig']
-df['balanceDiffDest'] = df['newbalanceDest'] - df['oldbalanceDest']
+# --------------------------------------------------------------
+# 2. LOAD MODELS
+# --------------------------------------------------------------
+st.sidebar.header("🔍 Choose Model for Prediction")
 
-# Features and target
-features = ['Amount', 'oldbalanceOrg', 'newbalanceOrig', 'oldbalanceDest', 'newbalanceDest', 'balanceDiffOrig', 'balanceDiffDest']
-X = df[features]
-y = df['Class']
+model_files = {
+    "Logistic Regression": "logistic_regression.pkl",
+    "Random Forest": "random_forest.pkl",
+    "XGBoost": "xgboost.pkl",
+    "Isolation Forest": "isolation_forest.pkl",
+    "Hybrid Model": "hybrid_model.pkl"
+}
 
-# -----------------------------
-# Split data
-# -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y, random_state=42)
+selected_model_name = st.sidebar.selectbox("Select Model", list(model_files.keys()))
+model_path = os.path.join("models", model_files[selected_model_name])
 
-# -----------------------------
-# Scale numeric features
-# -----------------------------
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+# Load selected model
+model = joblib.load(model_path)
 
-# Save scaler
-joblib.dump(scaler, "scaler.pkl")
-print("Scaler saved as scaler.pkl")
+# --------------------------------------------------------------
+# 3. DASHBOARD HEADER
+# --------------------------------------------------------------
+st.title("💳 Credit Card Fraud Detection Dashboard")
+st.markdown("Real-time analysis & fraud prediction using ML models")
 
-# -----------------------------
-# 1️⃣ Logistic Regression
-# -----------------------------
-logreg = LogisticRegression(class_weight='balanced', max_iter=2000, random_state=42)
-logreg.fit(X_train_scaled, y_train)
-joblib.dump(logreg, "logistic_regression.pkl")
-print("Logistic Regression saved as logistic_regression.pkl")
+# --------------------------------------------------------------
+# 4. DATA OVERVIEW SECTION
+# --------------------------------------------------------------
+st.subheader("📊 Dataset Overview")
 
-# -----------------------------
-# 2️⃣ Random Forest
-# -----------------------------
-rf = RandomForestClassifier(n_estimators=200, class_weight='balanced', random_state=42)
-rf.fit(X_train, y_train)
-joblib.dump(rf, "random_forest.pkl")
-print("Random Forest saved as random_forest.pkl")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Transactions", len(df))
+c2.metric("Fraud Cases", df["Class"].sum())
+c3.metric("Fraud %", round(df["Class"].mean() * 100, 3))
+c4.metric("Features", df.shape[1])
 
-# -----------------------------
-# 3️⃣ XGBoost
-# -----------------------------
-xgb = XGBClassifier(n_estimators=200, scale_pos_weight=(len(y_train)-sum(y_train))/sum(y_train), random_state=42, use_label_encoder=False, eval_metric='logloss')
-xgb.fit(X_train, y_train)
-joblib.dump(xgb, "xgboost.pkl")
-print("XGBoost saved as xgboost.pkl")
+# --------------------------------------------------------------
+# 5. VISUALIZATIONS
+# --------------------------------------------------------------
+st.subheader("📈 Visualizations")
 
-# -----------------------------
-# 4️⃣ Isolation Forest (unsupervised)
-# -----------------------------
-iso = IsolationForest(n_estimators=200, contamination=0.01, random_state=42)
-iso.fit(X_train)  # Use unscaled raw features
-joblib.dump(iso, "isolation_forest.pkl")
-print("Isolation Forest saved as isolation_forest.pkl")
+tab1, tab2, tab3 = st.tabs(["Fraud Distribution", "Amount Distribution", "Correlation Matrix"])
 
-# -----------------------------
-# 5️⃣ Hybrid Model (RF + XGB + Isolation Forest)
-# -----------------------------
-# Example: simple ensemble averaging probabilities
-class HybridModel:
-    def __init__(self, rf_model, xgb_model, iso_model):
-        self.rf = rf_model
-        self.xgb = xgb_model
-        self.iso = iso_model
-    
-    def predict(self, X):
-        # RF and XGB probabilities
-        prob_rf = self.rf.predict_proba(X)[:,1]
-        prob_xgb = self.xgb.predict_proba(X)[:,1]
-        # Isolation Forest anomaly score: -1 for outliers, 1 for inliers
-        iso_scores = self.iso.predict(X)
-        prob_iso = np.where(iso_scores==-1, 1, 0)  # treat anomalies as fraud
-        # Average
-        avg_prob = (prob_rf + prob_xgb + prob_iso) / 3
-        return (avg_prob > 0.5).astype(int)
-    
-    def predict_proba(self, X):
-        prob_rf = self.rf.predict_proba(X)[:,1]
-        prob_xgb = self.xgb.predict_proba(X)[:,1]
-        iso_scores = self.iso.predict(X)
-        prob_iso = np.where(iso_scores==-1, 1, 0)
-        avg_prob = (prob_rf + prob_xgb + prob_iso) / 3
-        return np.vstack([1-avg_prob, avg_prob]).T
+# --- Fraud distribution ---
+with tab1:
+    fig = px.pie(
+        df,
+        names="Class",
+        title="Fraud vs Non-Fraud",
+        color="Class",
+        color_discrete_map={0: "green", 1: "red"}
+    )
+    st.plotly_chart(fig)
 
-hybrid = HybridModel(rf, xgb, iso)
-joblib.dump(hybrid, "hybrid_model.pkl")
-print("Hybrid Model saved as hybrid_model.pkl")
+# --- Amount distribution ---
+with tab2:
+    fig = px.histogram(df, x="Amount", nbins=100, title="Transaction Amount Distribution")
+    st.plotly_chart(fig)
+
+# --- Correlation matrix ---
+with tab3:
+    corr = df.corr()
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.heatmap(corr, cmap="coolwarm", ax=ax)
+    st.pyplot(fig)
+
+# --------------------------------------------------------------
+# 6. MANUAL INPUT FOR PREDICTION
+# --------------------------------------------------------------
+st.subheader("🧮 Fraud Prediction for a Single Transaction")
+
+col1, col2, col3 = st.columns(3)
+
+amount = col1.number_input("Transaction Amount ($)", 0, 100000, 100)
+v1 = col2.number_input("V1", value=0.0)
+v2 = col3.number_input("V2", value=0.0)
+v3 = col1.number_input("V3", value=0.0)
+v4 = col2.number_input("V4", value=0.0)
+v5 = col3.number_input("V5", value=0.0)
+
+# Prepare input
+user_data = pd.DataFrame([[v1, v2, v3, v4, v5, amount]], 
+                         columns=["V1", "V2", "V3", "V4", "V5", "Amount"])
+
+if st.button("Predict Fraud"):
+    prediction = model.predict(user_data)[0]
+    proba = model.predict_proba(user_data)[0][1] if hasattr(model, "predict_proba") else None
+
+    if prediction == 1:
+        st.error(f"⚠ Fraud Detected!  (Probability: {proba:.3f})")
+    else:
+        st.success(f"✔ Legit Transaction  (Probability: {proba:.3f})")
+
+# --------------------------------------------------------------
+# 7. SHOW RAW DATA
+# --------------------------------------------------------------
+st.subheader("📄 Dataset Preview")
+st.dataframe(df.head(50))
+
+st.success("App Loaded Successfully!")
