@@ -1,6 +1,7 @@
 # ============================================================
-# STREAMLIT FRAUD DETECTION DASHBOARD (SHAP REMOVED)
+# STREAMLIT FRAUD DETECTION DASHBOARD 
 # ============================================================
+
 import streamlit as st
 import pandas as pd
 import joblib
@@ -18,7 +19,7 @@ st.set_page_config(
 )
 
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Upload a CSV file to detect fraudulent transactions using a trained Random Forest model with enhanced visualizations.")
+st.markdown("Upload a CSV file to detect fraudulent transactions and explore model comparisons and visualizations.")
 
 # ============================================================
 # LOAD MODEL
@@ -37,7 +38,7 @@ model = load_model()
 # ============================================================
 # TABS
 # ============================================================
-tab1, tab2 = st.tabs(["Upload CSV & Predictions", "Visualizations"])
+tab1, tab2, tab3 = st.tabs(["Upload CSV & Predictions", "Visualizations", "Model Comparison"])
 
 # ============================================================
 # TAB 1: CSV UPLOAD AND PREDICTIONS
@@ -79,6 +80,8 @@ with tab1:
         # Download predictions
         csv = df_filtered.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Download Predictions with Probabilities", csv, "fraud_predictions.csv","text/csv")
+    else:
+        st.info("Please upload a CSV file to get predictions.")
 
 # ============================================================
 # TAB 2: VISUALIZATIONS
@@ -91,11 +94,11 @@ with tab2:
         fig_bar = px.histogram(df_filtered, x='Class', color='Class', title="Fraud vs Legit Transactions")
         st.plotly_chart(fig_bar, use_container_width=True)
 
-        # Fraud proportion pie chart
+        # Pie chart
         fig_pie = px.pie(df_filtered, names='Class', title="Fraud vs Legit Transactions (%)", color='Class')
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Transaction Amount Distribution Histogram
+        # Histogram of Amount
         fig_hist, ax_hist = plt.subplots()
         sns.histplot(df_filtered['Amount'], bins=50, kde=True, ax=ax_hist)
         ax_hist.set_title("Transaction Amount Distribution")
@@ -122,14 +125,38 @@ with tab2:
         sns.heatmap(df_filtered[corr_cols].corr(), annot=True, cmap='coolwarm', ax=ax_corr)
         ax_corr.set_title('Feature Correlation Heatmap')
         st.pyplot(fig_corr)
-
-        # Top 10 fraud transactions by Amount
-        if 'TransactionID' in df_filtered.columns:
-            top_fraud = df_filtered[df_filtered['Class']==1].nlargest(10,'Amount')
-            fig_top, ax_top = plt.subplots()
-            sns.barplot(x='Amount', y='TransactionID', data=top_fraud, ax=ax_top, palette='Reds_r')
-            ax_top.set_title('Top 10 Fraud Transactions by Amount')
-            st.pyplot(fig_top)
     else:
         st.info("Upload a CSV to see visualizations.")
+
+# ============================================================
+# TAB 3: MODEL PERFORMANCE COMPARISON
+# ============================================================
+with tab3:
+    st.subheader("Model Performance Metrics")
+
+    # Example model performance metrics (replace with real results if available)
+    data = {
+        "Model": ["Logistic Regression", "Random Forest", "XGBoost", "Isolation Forest", "Hybrid Model"],
+        "Accuracy": [0.95, 0.98, 0.99, 0.90, 0.99],
+        "Precision": [0.70, 0.85, 0.88, 0.60, 0.90],
+        "Recall": [0.65, 0.82, 0.90, 0.75, 0.92],
+        "F1-Score": [0.67, 0.83, 0.89, 0.67, 0.91],
+        "ROC-AUC": [0.90, 0.95, 0.97, 0.85, 0.97]
+    }
+    df_metrics = pd.DataFrame(data)
+    st.dataframe(df_metrics)
+
+    # Bar chart for comparison
+    metrics_to_plot = ["Precision", "Recall", "F1-Score", "ROC-AUC"]
+    fig = px.bar(
+        df_metrics.melt(id_vars="Model", value_vars=metrics_to_plot),
+        x="Model",
+        y="value",
+        color="variable",
+        barmode="group",
+        text="value",
+        labels={"value":"Score"},
+        title="Model Performance Comparison"
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
