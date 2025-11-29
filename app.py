@@ -3,7 +3,6 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Predict fraud using uploaded CSV files or by entering single transaction details manually.")
+st.markdown("Upload a CSV file to detect fraudulent transactions using a trained Random Forest model with enhanced visualizations.")
 
 # ============================================================
 # LOAD MODEL
@@ -36,12 +35,12 @@ def load_model(path="random_forest.pkl"):
 model = load_model()
 
 # ============================================================
-# TABS FOR DASHBOARD
+# TABS
 # ============================================================
-tab1, tab2, tab3 = st.tabs(["Upload CSV", "Manual Transaction", "Visualizations"])
+tab1, tab2 = st.tabs(["Upload CSV & Predictions", "Visualizations"])
 
 # ============================================================
-# TAB 1: CSV Upload
+# TAB 1: CSV UPLOAD AND PREDICTIONS
 # ============================================================
 with tab1:
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
@@ -58,21 +57,22 @@ with tab1:
         df_filtered = df[(df['Amount'] >= amount_range[0]) & (df['Amount'] <= amount_range[1])]
         st.write(f"Filtered transactions: {df_filtered.shape[0]} rows")
 
-        # Preprocess
+        # Preprocess numeric features
         scaler = StandardScaler()
         df_filtered['Amount_scaled'] = scaler.fit_transform(df_filtered[['Amount']])
         if 'Time' in df_filtered.columns:
             df_filtered['Time_scaled'] = scaler.fit_transform(df_filtered[['Time']])
 
+        # Prepare input for model
         X = df_filtered.drop(columns=['Class','Amount','Time'], errors='ignore')
 
-        # Predict
+        # Predict fraud
         df_filtered['Prediction'] = model.predict(X)
         df_filtered['FraudLabel'] = df_filtered['Prediction'].map({0:'Legitimate',1:'Fraud'})
         df_filtered['FraudProbability'] = model.predict_proba(X)[:,1]*100
 
-        # Display high-risk
-        st.subheader("High-Risk Transactions (Probability > 90%)")
+        # Highlight high-risk transactions (>90%)
+        st.subheader("High-Risk Transactions (Fraud Probability > 90%)")
         high_risk = df_filtered[df_filtered['FraudProbability']>90]
         st.dataframe(high_risk[['Prediction','FraudLabel','FraudProbability']].sort_values(by='FraudProbability',ascending=False))
 
@@ -81,78 +81,55 @@ with tab1:
         st.download_button("📥 Download Predictions with Probabilities", csv, "fraud_predictions.csv","text/csv")
 
 # ============================================================
-# TAB 2: Manual Transaction Input
+# TAB 2: VISUALIZATIONS
 # ============================================================
 with tab2:
-    st.subheader("Enter Single Transaction Details")
-    with st.form("transaction_form"):
-        tx_type = st.selectbox("Transaction Type", ["TRANSFER","CASH_OUT","DEBIT","PAYMENT","CASH_IN"])
-        oldbalance_orig = st.number_input("Sender's Old Balance ($)", min_value=0.0, value=1000.0, step=0.01)
-        amount = st.number_input("Transaction Amount ($)", min_value=0.0, value=100.0, step=0.01)
-        newbalance_orig = st.number_input("Sender's New Balance ($)", min_value=0.0, value=900.0, step=0.01)
-        newbalance_dest = st.number_input("Receiver's New Balance ($)", min_value=0.0, value=500.0, step=0.01)
-        submitted = st.form_submit_button("Check Fraud")
+    st.subheader("Enhanced Visualizations")
 
-    if submitted and model:
-        df_input = pd.DataFrame({
-            "type":[tx_type],
-            "oldbalanceOrg":[oldbalance_orig],
-            "newbalanceOrig":[newbalance_orig],
-            "newbalanceDest":[newbalance_dest],
-            "amount":[amount],
-            "balanceDiffOrig":[oldbalance_orig-newbalance_orig],
-            "balanceDiffDest":[newbalance_dest-0]
-        })
-
-        # Scaling
-        numeric_cols = ["oldbalanceOrg","newbalanceOrig","newbalanceDest","amount","balanceDiffOrig","balanceDiffDest"]
-        scaler = StandardScaler()
-        df_input[numeric_cols] = scaler.fit_transform(df_input[numeric_cols])
-
-        # One-hot encode type
-        df_input = pd.get_dummies(df_input, columns=["type"], drop_first=True)
-
-        # Add missing columns for model
-        for col in model.feature_names_in_:
-            if col not in df_input.columns:
-                df_input[col]=0
-        df_input = df_input[model.feature_names_in_]
-
-        # Predict
-        pred = model.predict(df_input)[0]
-        prob = model.predict_proba(df_input)[0][1]*100
-
-        st.subheader("Transaction Summary")
-        st.write(f"Type: {tx_type}")
-        st.write(f"Sender's Old Balance: ${oldbalance_orig}")
-        st.write(f"Transaction Amount: ${amount}")
-        st.write(f"Sender's New Balance: ${newbalance_orig}")
-        st.write(f"Receiver's New Balance: ${newbalance_dest}")
-
-        st.subheader("Fraud Prediction")
-        st.write(f"Predicted Class: {'Fraud' if pred==1 else 'Legitimate'}")
-        st.write(f"Fraud Probability: {prob:.2f}%")
-
-        if prob>90:
-            st.warning("⚠️ High-Risk Transaction!")
-        elif pred==1:
-            st.error("⚠️ Fraud Detected!")
-        else:
-            st.success("✅ Transaction is likely legitimate")
-
-# ============================================================
-# TAB 3: Visualizations
-# ============================================================
-with tab3:
-    st.subheader("Visualizations")
     if uploaded_file:
-        fig = px.histogram(df_filtered, x='Class', color='Class', title="Fraud vs Legit Transactions")
-        st.plotly_chart(fig,use_container_width=True)
+        # Fraud distribution bar chart
+        fig_bar = px.histogram(df_filtered, x='Class', color='Class', title="Fraud vs Legit Transactions")
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-        fig2, ax2 = plt.subplots()
-        sns.histplot(df_filtered['Amount'], bins=50, kde=True, ax=ax2)
-        ax2.set_title("Transaction Amount Distribution")
-        st.pyplot(fig2)
+        # Fraud proportion pie chart
+        fig_pie = px.pie(df_filtered, names='Class', title="Fraud vs Legit Transactions (%)", color='Class')
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+        # Transaction Amount Distribution Histogram
+        fig_hist, ax_hist = plt.subplots()
+        sns.histplot(df_filtered['Amount'], bins=50, kde=True, ax=ax_hist)
+        ax_hist.set_title("Transaction Amount Distribution")
+        st.pyplot(fig_hist)
+
+        # Box plot of Amount by Class
+        fig_box, ax_box = plt.subplots()
+        sns.boxplot(x='Class', y='Amount', data=df_filtered, ax=ax_box)
+        ax_box.set_title('Transaction Amount by Class')
+        st.pyplot(fig_box)
+
+        # Fraud probability distribution
+        fig_prob, ax_prob = plt.subplots()
+        sns.histplot(df_filtered['FraudProbability'], bins=50, kde=True, color='red', ax=ax_prob)
+        ax_prob.set_title('Fraud Probability Distribution')
+        st.pyplot(fig_prob)
+
+        # Correlation heatmap
+        corr_cols = ['Amount_scaled']
+        if 'Time_scaled' in df_filtered.columns:
+            corr_cols.append('Time_scaled')
+        corr_cols.append('FraudProbability')
+        fig_corr, ax_corr = plt.subplots(figsize=(8,6))
+        sns.heatmap(df_filtered[corr_cols].corr(), annot=True, cmap='coolwarm', ax=ax_corr)
+        ax_corr.set_title('Feature Correlation Heatmap')
+        st.pyplot(fig_corr)
+
+        # Top 10 fraud transactions by Amount
+        if 'TransactionID' in df_filtered.columns:
+            top_fraud = df_filtered[df_filtered['Class']==1].nlargest(10,'Amount')
+            fig_top, ax_top = plt.subplots()
+            sns.barplot(x='Amount', y='TransactionID', data=top_fraud, ax=ax_top, palette='Reds_r')
+            ax_top.set_title('Top 10 Fraud Transactions by Amount')
+            st.pyplot(fig_top)
     else:
         st.info("Upload a CSV to see visualizations.")
 
