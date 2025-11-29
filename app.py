@@ -29,8 +29,13 @@ def load_data():
     return pd.read_csv(CSV_URL)
 
 df = load_data()
+
+# Rename column for consistency
 if "Class" in df.columns:
-    df.rename(columns={"Class": "isFraud"}, inplace=True)
+    df = df.rename(columns={"Class": "isFraud"})
+elif "isFraud" not in df.columns:
+    st.error("Dataset does not have 'Class' or 'isFraud' column.")
+    st.stop()
 
 # ------------------------------------------------------------------
 # 2. DYNAMIC MODEL LOADER
@@ -48,14 +53,13 @@ if not available_models:
 selected_model_file = st.sidebar.selectbox("🔍 Select Model", available_models)
 model_path = os.path.join(MODELS_DIR, selected_model_file)
 model = joblib.load(model_path)
-
 st.sidebar.success(f"Loaded model: {selected_model_file}")
 
 # ------------------------------------------------------------------
 # 3. DASHBOARD HEADER
 # ------------------------------------------------------------------
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Real-time analysis & fraud prediction using available ML models.")
+st.markdown("Real-time analysis & fraud prediction using machine learning models.")
 
 # ------------------------------------------------------------------
 # 4. DATA SUMMARY CARDS
@@ -71,6 +75,7 @@ c4.metric("Features", df.shape[1])
 # 5. VISUALIZATIONS
 # ------------------------------------------------------------------
 st.subheader("📈 Visualizations")
+
 tab1, tab2, tab3 = st.tabs(["Fraud Distribution", "Amount Histogram", "Correlation Matrix"])
 
 with tab1:
@@ -119,8 +124,6 @@ if st.button("Predict Fraud"):
 # ------------------------------------------------------------------
 st.subheader("📄 Dataset Preview")
 st.dataframe(df.head(50))
-st.success("Dashboard loaded successfully!")
-
 
 st.success("Dashboard loaded successfully!")
 
