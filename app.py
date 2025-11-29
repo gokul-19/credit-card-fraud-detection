@@ -1,11 +1,10 @@
 # ============================================================
-# STREAMLIT FRAUD DETECTION DASHBOARD
+# STREAMLIT FRAUD DETECTION DASHBOARD (SHAP REMOVED)
 # ============================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
@@ -20,7 +19,7 @@ st.set_page_config(
 )
 
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Upload a CSV file to detect fraudulent transactions and explore explainable insights.")
+st.markdown("Upload a CSV file to detect fraudulent transactions using a trained Random Forest model.")
 
 # ============================================================
 # LOAD MODEL
@@ -47,7 +46,7 @@ if uploaded_file and model:
     # ============================================================
     # TABS
     # ============================================================
-    tab1, tab2, tab3 = st.tabs(["Dataset Overview", "Visualizations", "Predictions & SHAP"])
+    tab1, tab2, tab3 = st.tabs(["Dataset Overview", "Visualizations", "Predictions"])
 
     # ============================================================
     # TAB 1: Dataset Overview
@@ -85,11 +84,10 @@ if uploaded_file and model:
         st.pyplot(fig2)
 
     # ============================================================
-    # TAB 3: Predictions & SHAP
+    # TAB 3: Predictions
     # ============================================================
     with tab3:
         st.subheader("🔍 Fraud Predictions")
-
         try:
             # Scale Amount & Time
             scaler = StandardScaler()
@@ -111,28 +109,10 @@ if uploaded_file and model:
             st.dataframe(high_risk[['Prediction','FraudLabel','FraudProbability']].sort_values(by='FraudProbability', ascending=False))
 
             # ============================================================
-            # SHAP EXPLAINABILITY
-            # ============================================================
-            st.write("### SHAP Feature Importance")
-            explainer = shap.TreeExplainer(model)
-            shap_values = explainer.shap_values(X)
-
-            fig_summary, ax_summary = plt.subplots(figsize=(10,6))
-            shap.summary_plot(shap_values[1], X, plot_type="bar", show=False)
-            st.pyplot(fig_summary)
-
-            # Dependence plot for top feature
-            top_feature = X.columns[np.argsort(np.abs(shap_values[1]).mean(0))[-1]]
-            st.write(f"### SHAP Dependence Plot for Feature: {top_feature}")
-            fig_dep, ax_dep = plt.subplots(figsize=(8,5))
-            shap.dependence_plot(top_feature, shap_values[1], X, show=False)
-            st.pyplot(fig_dep)
-
-            # ============================================================
             # Download predictions
             # ============================================================
             csv = df_filtered.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Predictions with Probabilities", csv, "fraud_predictions_shap.csv", "text/csv")
+            st.download_button("📥 Download Predictions with Probabilities", csv, "fraud_predictions.csv", "text/csv")
 
         except Exception as e:
             st.error(f"Error during prediction: {e}")
