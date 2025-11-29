@@ -1,6 +1,3 @@
-# ============================================================
-# STREAMLIT FRAUD DETECTION DASHBOARD 
-# ============================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -30,37 +27,22 @@ def load_data():
 
 df = load_data()
 
-# ------------------------------------------------------------------
-# Detect fraud column automatically
-# ------------------------------------------------------------------
-fraud_column_candidates = ["Class", "isFraud", "fraud_label"]
-
-fraud_col = None
-for col in fraud_column_candidates:
-    if col in df.columns:
-        fraud_col = col
-        break
-
-if fraud_col is None:
-    st.error("Dataset does not have a fraud column (Class / isFraud / fraud_label).")
+# Ensure 'isFraud' exists
+if "isFraud" not in df.columns:
+    st.error("Dataset does not have 'isFraud' column.")
     st.stop()
-else:
-    if fraud_col != "isFraud":
-        df = df.rename(columns={fraud_col: "isFraud"})
 
 # ------------------------------------------------------------------
 # 2. DYNAMIC MODEL LOADER
 # ------------------------------------------------------------------
 MODELS_DIR = "models"
 
-# List all .pkl files in models folder
 available_models = [f for f in os.listdir(MODELS_DIR) if f.endswith(".pkl")]
 
 if not available_models:
     st.error("No model files found in models/ folder! Please upload .pkl files.")
     st.stop()
 
-# Sidebar: select available model
 selected_model_file = st.sidebar.selectbox("🔍 Select Model", available_models)
 model_path = os.path.join(MODELS_DIR, selected_model_file)
 model = joblib.load(model_path)
@@ -93,11 +75,11 @@ with tab1:
     st.plotly_chart(fig)
 
 with tab2:
-    fig = px.histogram(df, x="Amount", nbins=50, title="Transaction Amount Distribution")
+    fig = px.histogram(df, x="amount", nbins=50, title="Transaction Amount Distribution")
     st.plotly_chart(fig)
 
 with tab3:
-    corr = df.corr()
+    corr = df[["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","isFraud"]].corr()
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.heatmap(corr, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
@@ -109,14 +91,14 @@ st.subheader("🧮 Predict Fraud for a Single Transaction")
 
 col1, col2, col3 = st.columns(3)
 amount = col1.number_input("Transaction Amount ($)", 0, 50000, 100)
-v1 = col2.number_input("V1", value=0.0)
-v2 = col3.number_input("V2", value=0.0)
-v3 = col1.number_input("V3", value=0.0)
-v4 = col2.number_input("V4", value=0.0)
-v5 = col3.number_input("V5", value=0.0)
+oldbalanceOrg = col2.number_input("Sender's Old Balance ($)", 0, 1000000, 0)
+newbalanceOrig = col3.number_input("Sender's New Balance ($)", 0, 1000000, 0)
+oldbalanceDest = col1.number_input("Receiver's Old Balance ($)", 0, 1000000, 0)
+newbalanceDest = col2.number_input("Receiver's New Balance ($)", 0, 1000000, 0)
 
-input_data = pd.DataFrame([[v1, v2, v3, v4, v5, amount]],
-                          columns=["V1", "V2", "V3", "V4", "V5", "Amount"])
+# For simplicity, we use numeric columns for prediction
+input_data = pd.DataFrame([[amount, oldbalanceOrg, newbalanceOrig, oldbalanceDest, newbalanceDest]],
+                          columns=["amount", "oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest"])
 
 if st.button("Predict Fraud"):
     try:
@@ -136,3 +118,4 @@ st.subheader("📄 Dataset Preview")
 st.dataframe(df.head(50))
 
 st.success("Dashboard loaded successfully!")
+
