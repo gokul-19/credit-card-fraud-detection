@@ -22,7 +22,7 @@ sns.set(style="whitegrid")
 # ------------------------------------------------------------------
 # 1. LOAD DATA FROM GOOGLE DRIVE
 # ------------------------------------------------------------------
-CSV_URL = "https://drive.google.com/uc?id=1Kwm31irBeeMqRmyp6fumkGSxlnGSmrzY"
+CSV_URL = "https://drive.google.com/uc?id=1eRNEgQKTAOC51zPdhXQcgzryXLk7QbVA"
 
 @st.cache_data
 def load_data():
@@ -30,12 +30,23 @@ def load_data():
 
 df = load_data()
 
-# Rename column for consistency
-if "Class" in df.columns:
-    df = df.rename(columns={"Class": "isFraud"})
-elif "isFraud" not in df.columns:
-    st.error("Dataset does not have 'Class' or 'isFraud' column.")
+# ------------------------------------------------------------------
+# Detect fraud column automatically
+# ------------------------------------------------------------------
+fraud_column_candidates = ["Class", "isFraud", "fraud_label"]
+
+fraud_col = None
+for col in fraud_column_candidates:
+    if col in df.columns:
+        fraud_col = col
+        break
+
+if fraud_col is None:
+    st.error("Dataset does not have a fraud column (Class / isFraud / fraud_label).")
     st.stop()
+else:
+    if fraud_col != "isFraud":
+        df = df.rename(columns={fraud_col: "isFraud"})
 
 # ------------------------------------------------------------------
 # 2. DYNAMIC MODEL LOADER
@@ -59,7 +70,7 @@ st.sidebar.success(f"Loaded model: {selected_model_file}")
 # 3. DASHBOARD HEADER
 # ------------------------------------------------------------------
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Real-time analysis & fraud prediction using machine learning models.")
+st.markdown("Real-time analysis & fraud prediction using available ML models.")
 
 # ------------------------------------------------------------------
 # 4. DATA SUMMARY CARDS
@@ -75,7 +86,6 @@ c4.metric("Features", df.shape[1])
 # 5. VISUALIZATIONS
 # ------------------------------------------------------------------
 st.subheader("📈 Visualizations")
-
 tab1, tab2, tab3 = st.tabs(["Fraud Distribution", "Amount Histogram", "Correlation Matrix"])
 
 with tab1:
@@ -126,4 +136,3 @@ st.subheader("📄 Dataset Preview")
 st.dataframe(df.head(50))
 
 st.success("Dashboard loaded successfully!")
-
