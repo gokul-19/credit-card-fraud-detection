@@ -1,121 +1,155 @@
-import streamlit as st
+# --------------------------------------------
+# 1. IMPORT LIBRARIES
+# --------------------------------------------
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import matplotlib.pyplot as plt
 import seaborn as sns
-import joblib
-import os
-
-# ------------------------------------------------------------------
-# PAGE CONFIG
-# ------------------------------------------------------------------
-st.set_page_config(
-    page_title="Credit Card Fraud Detection Dashboard",
-    layout="wide"
-)
+import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore")
 sns.set(style="whitegrid")
 
-# ------------------------------------------------------------------
-# 1. LOAD DATA FROM GOOGLE DRIVE
-# ------------------------------------------------------------------
-CSV_URL = "https://drive.google.com/uc?id=1eRNEgQKTAOC51zPdhXQcgzryXLk7QbVA"
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+import joblib
 
-@st.cache_data
-def load_data():
-    return pd.read_csv(CSV_URL)
+# --------------------------------------------
+# 2. LOAD DATASET
+# --------------------------------------------
+df = pd.read_csv("creditcard.csv")  # replace with your dataset path
+df.head()
 
-df = load_data()
+# --------------------------------------------
+# 3. BASIC ANALYSIS
+# --------------------------------------------
+print(df.shape)
+print(df.isnull().sum())
+print(df["isFraud"].value_counts())
+print("Fraud %:", round(df["isFraud"].mean()*100,2))
 
-# Ensure 'isFraud' exists
-if "isFraud" not in df.columns:
-    st.error("Dataset does not have 'isFraud' column.")
-    st.stop()
+# --------------------------------------------
+# 4. FEATURE ENGINEERING
+# --------------------------------------------
+df["balanceDiffOrig"] = df["oldbalanceOrg"] - df["newbalanceOrig"]
+df["balanceDiffDest"] = df["newbalanceDest"] - df["oldbalanceDest"]
 
-# ------------------------------------------------------------------
-# 2. DYNAMIC MODEL LOADER
-# ------------------------------------------------------------------
-MODELS_DIR = "models"
+# Zero balance after transfer
+df["zero_after_transfer"] = ((df["oldbalanceOrg"] > 0) & 
+                             (df["newbalanceOrig"] == 0) & 
+                             (df["type"].isin(["TRANSFER","CASH_OUT"]))).astype(int)
 
-available_models = [f for f in os.listdir(MODELS_DIR) if f.endswith(".pkl")]
-
-if not available_models:
-    st.error("No model files found in models/ folder! Please upload .pkl files.")
-    st.stop()
-
-selected_model_file = st.sidebar.selectbox("🔍 Select Model", available_models)
-model_path = os.path.join(MODELS_DIR, selected_model_file)
-model = joblib.load(model_path)
-st.sidebar.success(f"Loaded model: {selected_model_file}")
-
-# ------------------------------------------------------------------
-# 3. DASHBOARD HEADER
-# ------------------------------------------------------------------
-st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Real-time analysis & fraud prediction using available ML models.")
-
-# ------------------------------------------------------------------
-# 4. DATA SUMMARY CARDS
-# ------------------------------------------------------------------
-st.subheader("📊 Dataset Overview")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total Transactions", len(df))
-c2.metric("Fraud Cases", int(df["isFraud"].sum()))
-c3.metric("Fraud %", round(df["isFraud"].mean() * 100, 3))
-c4.metric("Features", df.shape[1])
-
-# ------------------------------------------------------------------
+# --------------------------------------------
 # 5. VISUALIZATIONS
-# ------------------------------------------------------------------
-st.subheader("📈 Visualizations")
-tab1, tab2, tab3 = st.tabs(["Fraud Distribution", "Amount Histogram", "Correlation Matrix"])
+# --------------------------------------------
+# Fraud distribution
+sns.countplot(df["isFraud"])
+plt.show()
 
-with tab1:
-    fig = px.pie(df, names="isFraud", title="Fraud vs Non-Fraud", color="isFraud")
-    st.plotly_chart(fig)
+# Transaction type vs Fraud
+sns.countplot(x="type", hue="isFraud", data=df)
+plt.show()
 
-with tab2:
-    fig = px.histogram(df, x="amount", nbins=50, title="Transaction Amount Distribution")
-    st.plotly_chart(fig)
+# Correlation heatmap
+numeric_cols = ["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","balanceDiffOrig","balanceDiffDest","zero_after_transfer","isFraud"]
+sns.heatmap(df[numeric_cols].corr(), cmap="coolwarm", annot=True)
+plt.show()
 
-with tab3:
-    corr = df[["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","isFraud"]].corr()
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(corr, cmap="coolwarm", ax=ax)
-    st.pyplot(fig)
+# --------------------------------------------
+# 6. PREPARE DATA FOR ML
+# --------------------------------------------
+features = ["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","balanceDiffOrig","balanceDiffDest","zero_after_transfer","type"]
+X = df[features]
+y = df["isFraud"]
 
-# ------------------------------------------------------------------
-# 6. SINGLE TRANSACTION PREDICTION
-# ------------------------------------------------------------------
-st.subheader("🧮 Predict Fraud for a Single Transaction")
+categorical = ["type"]
+numeric = ["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","balanceDiffOrig","balanceDiffDest","zero_after_transfer"]
 
-col1, col2, col3 = st.columns(3)
-amount = col1.number_input("Transaction Amount ($)", 0, 50000, 100)
-oldbalanceOrg = col2.number_input("Sender's Old Balance ($)", 0, 1000000, 0)
-newbalanceOrig = col3.number_input("Sender's New Balance ($)", 0, 1000000, 0)
-oldbalanceDest = col1.number_input("Receiver's Old Balance ($)", 0, 1000000, 0)
-newbalanceDest = col2.number_input("Receiver's New Balance ($)", 0, 1000000, 0)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y, random_state=42)
 
-# For simplicity, we use numeric columns for prediction
-input_data = pd.DataFrame([[amount, oldbalanceOrg, newbalanceOrig, oldbalanceDest, newbalanceDest]],
-                          columns=["amount", "oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest"])
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", StandardScaler(), numeric),
+        ("cat", OneHotEncoder(drop="first"), categorical)
+    ]
+)
 
-if st.button("Predict Fraud"):
-    try:
-        pred = model.predict(input_data)[0]
-        prob = model.predict_proba(input_data)[0][1] if hasattr(model, "predict_proba") else 0.0
-        if pred == 1:
-            st.error(f"⚠ Fraud Detected! (Probability: {prob:.4f})")
-        else:
-            st.success(f"✔ Legit Transaction (Probability: {prob:.4f})")
-    except Exception as e:
-        st.error(f"Prediction failed: {e}")
+# --------------------------------------------
+# 7. TRAIN MODELS AND SAVE
+# --------------------------------------------
+# 7.1 Logistic Regression
+lr_pipeline = Pipeline([
+    ("prep", preprocessor),
+    ("clf", LogisticRegression(class_weight="balanced", max_iter=2000))
+])
+lr_pipeline.fit(X_train, y_train)
+joblib.dump(lr_pipeline,"logistic_regression.pkl")
+print("Logistic Regression trained")
 
-# ------------------------------------------------------------------
-# 7. SHOW RAW DATA
-# ------------------------------------------------------------------
-st.subheader("📄 Dataset Preview")
-st.dataframe(df.head(50))
+# 7.2 Random Forest
+rf_pipeline = Pipeline([
+    ("prep", preprocessor),
+    ("clf", RandomForestClassifier(n_estimators=200, class_weight="balanced", random_state=42))
+])
+rf_pipeline.fit(X_train, y_train)
+joblib.dump(rf_pipeline,"random_forest.pkl")
+print("Random Forest trained")
 
-st.success("Dashboard loaded successfully!")
+# 7.3 XGBoost
+xgb_pipeline = Pipeline([
+    ("prep", preprocessor),
+    ("clf", XGBClassifier(scale_pos_weight=int(y_train.value_counts()[0]/y_train.value_counts()[1]), use_label_encoder=False, eval_metric="logloss"))
+])
+xgb_pipeline.fit(X_train, y_train)
+joblib.dump(xgb_pipeline,"xgboost.pkl")
+print("XGBoost trained")
+
+# 7.4 Isolation Forest (unsupervised)
+iso = IsolationForest(contamination=y_train.mean(), random_state=42)
+iso.fit(X_train[numeric])  # only numeric for IsolationForest
+joblib.dump(iso,"isolation_forest.pkl")
+print("Isolation Forest trained")
+
+# 7.5 Hybrid Model (RF + XGB + Isolation)
+# Here we save a dictionary of models as hybrid
+hybrid_models = {
+    "rf": rf_pipeline,
+    "xgb": xgb_pipeline,
+    "iso": iso
+}
+joblib.dump(hybrid_models,"hybrid_model.pkl")
+print("Hybrid model saved")
+
+# --------------------------------------------
+# 8. EVALUATE MODELS
+# --------------------------------------------
+def evaluate_model(model, X_test, y_test, model_name):
+    if model_name != "Isolation Forest":
+        y_pred = model.predict(X_test)
+        print(f"--- {model_name} ---")
+        print(classification_report(y_test, y_pred))
+        print("Confusion Matrix:")
+        print(confusion_matrix(y_test, y_pred))
+        print("ROC-AUC:", roc_auc_score(y_test, model.predict_proba(X_test)[:,1]))
+    else:
+        # Isolation Forest anomaly scores
+        y_pred = model.predict(X_test[numeric])
+        # convert -1->1 fraud, 1->0 normal
+        y_pred = np.where(y_pred==-1,1,0)
+        print(f"--- {model_name} ---")
+        print(classification_report(y_test, y_pred))
+        print("Confusion Matrix:")
+        print(confusion_matrix(y_test, y_pred))
+
+evaluate_model(lr_pipeline, X_test, y_test, "Logistic Regression")
+evaluate_model(rf_pipeline, X_test, y_test, "Random Forest")
+evaluate_model(xgb_pipeline, X_test, y_test, "XGBoost")
+evaluate_model(iso, X_test, y_test, "Isolation Forest")
+
+print("All models trained and saved as .pkl files")
 
