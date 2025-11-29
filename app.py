@@ -3,32 +3,35 @@
 # ============================================================
 import streamlit as st
 import pandas as pd
+import numpy as np
+import joblib
+import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
-import joblib
+import plotly.express as px
 from sklearn.preprocessing import StandardScaler
 
 sns.set(style="whitegrid")
 
 st.set_page_config(
-    page_title="Credit Card Fraud Detection",
+    page_title="Credit Card Fraud Detection Dashboard",
     page_icon="💳",
     layout="wide"
 )
 
 st.title("💳 Credit Card Fraud Detection Dashboard")
-st.markdown("Upload a CSV file to detect fraudulent transactions using a trained Random Forest model.")
+st.markdown("Upload a CSV file to detect fraudulent transactions and explore explainable insights.")
 
 # ============================================================
 # LOAD MODEL
 # ============================================================
 @st.cache_resource
-def load_model():
+def load_model(path="random_forest.pkl"):
     try:
-        model = joblib.load("random_forest.pkl")
+        model = joblib.load(path)
         return model
     except:
-        st.error("Random Forest model not found. Make sure random_forest.pkl is in the folder!")
+        st.error(f"Model file {path} not found!")
         return None
 
 model = load_model()
@@ -40,72 +43,100 @@ uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
 if uploaded_file and model:
     df = pd.read_csv(uploaded_file)
-    st.subheader("Uploaded Data")
-    st.dataframe(df.head())
 
     # ============================================================
-    # SHOW DATA INFO
+    # TABS
     # ============================================================
-    st.subheader("Dataset Summary")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Rows", df.shape[0])
-    with col2:
-        st.metric("Columns", df.shape[1])
-    with col3:
-        if 'Class' in df.columns:
-            st.metric("Fraud %", f"{round(df['Class'].mean()*100,2)}%")
+    tab1, tab2, tab3 = st.tabs(["Dataset Overview", "Visualizations", "Predictions & SHAP"])
 
     # ============================================================
-    # VISUALIZATIONS
+    # TAB 1: Dataset Overview
     # ============================================================
-    st.subheader("Visualizations")
-    if 'Class' in df.columns:
-        fig, ax = plt.subplots()
-        sns.countplot(data=df, x='Class', palette='coolwarm', ax=ax)
-        ax.set_title("Fraud vs Non-Fraud")
-        st.pyplot(fig)
+    with tab1:
+        st.subheader("📌 Uploaded Data")
+        st.dataframe(df.head())
 
-    if 'Amount' in df.columns:
+        st.markdown("### Summary Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Transactions", df.shape[0])
+        col2.metric("Total Fraud", int(df.get('Class', pd.Series([0]*len(df))).sum()))
+        col3.metric("Average Amount", round(df['Amount'].mean(), 2))
+        col4.metric("Max Amount", round(df['Amount'].max(), 2))
+
+        st.markdown("### Filters")
+        min_amount = float(df['Amount'].min())
+        max_amount = float(df['Amount'].max())
+        amount_range = st.slider("Transaction Amount Range", min_value=min_amount, max_value=max_amount, value=(min_amount, max_amount))
+        df_filtered = df[(df['Amount'] >= amount_range[0]) & (df['Amount'] <= amount_range[1])]
+        st.write(f"Filtered transactions: {df_filtered.shape[0]} rows")
+
+    # ============================================================
+    # TAB 2: Visualizations
+    # ============================================================
+    with tab2:
+        st.subheader("📊 Visualizations")
+        if 'Class' in df_filtered.columns:
+            fig = px.histogram(df_filtered, x='Class', color='Class', title="Fraud vs Legit Transactions")
+            st.plotly_chart(fig, use_container_width=True)
+
         fig2, ax2 = plt.subplots()
-        sns.histplot(df['Amount'], bins=50, kde=True, ax=ax2)
+        sns.histplot(df_filtered['Amount'], bins=50, kde=True, ax=ax2)
         ax2.set_title("Transaction Amount Distribution")
         st.pyplot(fig2)
 
     # ============================================================
-    # PREPROCESS DATA FOR PREDICTION
+    # TAB 3: Predictions & SHAP
     # ============================================================
-    st.subheader("Fraud Predictions")
-    try:
-        # Scale Amount and Time
-        if 'Amount_scaled' not in df.columns:
+    with tab3:
+        st.subheader("🔍 Fraud Predictions")
+
+        try:
+            # Scale Amount & Time
             scaler = StandardScaler()
-            if 'Amount' in df.columns:
-                df['Amount_scaled'] = scaler.fit_transform(df[['Amount']])
-            if 'Time' in df.columns:
-                df['Time_scaled'] = scaler.fit_transform(df[['Time']])
+            if 'Amount_scaled' not in df_filtered.columns:
+                df_filtered['Amount_scaled'] = scaler.fit_transform(df_filtered[['Amount']])
+            if 'Time_scaled' not in df_filtered.columns and 'Time' in df_filtered.columns:
+                df_filtered['Time_scaled'] = scaler.fit_transform(df_filtered[['Time']])
 
-        # Prepare features (drop columns not used)
-        X = df.drop(columns=['Class', 'Amount', 'Time'], errors='ignore')
+            X = df_filtered.drop(columns=['Class', 'Amount', 'Time'], errors='ignore')
 
-        # Make predictions
-        df['Prediction'] = model.predict(X)
-        df['FraudLabel'] = df['Prediction'].map({0: 'Legitimate', 1: 'Fraud'})
+            # Predictions
+            df_filtered['Prediction'] = model.predict(X)
+            df_filtered['FraudLabel'] = df_filtered['Prediction'].map({0: 'Legitimate', 1: 'Fraud'})
+            df_filtered['FraudProbability'] = model.predict_proba(X)[:,1]*100
 
-        st.success("Predictions completed!")
-        st.dataframe(df[['Prediction', 'FraudLabel']].head(20))
+            # Highlight high-risk transactions (>90%)
+            st.write("### High-Risk Transactions (Fraud Probability > 90%)")
+            high_risk = df_filtered[df_filtered['FraudProbability'] > 90]
+            st.dataframe(high_risk[['Prediction','FraudLabel','FraudProbability']].sort_values(by='FraudProbability', ascending=False))
 
-        # Download predictions
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 Download Predictions",
-            csv,
-            "fraud_predictions.csv",
-            "text/csv"
-        )
+            # ============================================================
+            # SHAP EXPLAINABILITY
+            # ============================================================
+            st.write("### SHAP Feature Importance")
+            explainer = shap.TreeExplainer(model)
+            shap_values = explainer.shap_values(X)
 
-    except Exception as e:
-        st.error(f"Error during prediction: {e}")
+            fig_summary, ax_summary = plt.subplots(figsize=(10,6))
+            shap.summary_plot(shap_values[1], X, plot_type="bar", show=False)
+            st.pyplot(fig_summary)
+
+            # Dependence plot for top feature
+            top_feature = X.columns[np.argsort(np.abs(shap_values[1]).mean(0))[-1]]
+            st.write(f"### SHAP Dependence Plot for Feature: {top_feature}")
+            fig_dep, ax_dep = plt.subplots(figsize=(8,5))
+            shap.dependence_plot(top_feature, shap_values[1], X, show=False)
+            st.pyplot(fig_dep)
+
+            # ============================================================
+            # Download predictions
+            # ============================================================
+            csv = df_filtered.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Predictions with Probabilities", csv, "fraud_predictions_shap.csv", "text/csv")
+
+        except Exception as e:
+            st.error(f"Error during prediction: {e}")
 
 else:
     st.info("Please upload a CSV file to start predictions.")
+
