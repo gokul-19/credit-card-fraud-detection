@@ -6,51 +6,68 @@ import plotly.express as px
 import gdown
 import joblib
 import os
-from sklearn.preprocessing import StandardScaler
 
+# =========================================================
+# STREAMLIT CONFIG
+# =========================================================
 st.set_page_config(
     page_title="Credit Card Fraud Detection Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ---------------------------------------------------------
-# GOOGLE DRIVE DATA LOADING
-# ---------------------------------------------------------
+# =========================================================
+# GOOGLE DRIVE DOWNLOAD
+# =========================================================
+# Your shared link
 FILE_ID = "1eRNEgQKTAOC51zPdhXQcgzryXLk7QbVA"
 DATA_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 
-def load_data():
+def load_dataset():
+    """Downloads dataset if missing"""
     if not os.path.exists("dataset.csv"):
-        gdown.download(DATA_URL, "dataset.csv", quiet=False)
-    df = pd.read_csv("dataset.csv")
-    return df
+        try:
+            st.info("📥 Downloading dataset from Google Drive ...")
+            gdown.download(DATA_URL, "dataset.csv", quiet=False)
+        except Exception as e:
+            st.error(f"Download Error: {e}")
+            return None
+    
+    try:
+        df = pd.read_csv("dataset.csv")
+        return df
+    except Exception as e:
+        st.error(f"CSV Read Error: {e}")
+        return None
 
 @st.cache_data
-def cached_data():
-    return load_data()
+def get_data():
+    return load_dataset()
 
-df = cached_data()
+df = get_data()
 
-# ---------------------------------------------------------
+if df is None:
+    st.stop()
+
+# =========================================================
 # LOAD MODELS
-# ---------------------------------------------------------
-def load_model(filename):
+# =========================================================
+def load_model(path):
     try:
-        return joblib.load(filename)
+        return joblib.load(path)
     except:
         return None
 
 models = {
-    "Logistic Regression": load_model("logistic_regression.pkl"),
-    "Random Forest": load_model("random_forest.pkl"),
-    "XGBoost": load_model("xgboost_model.pkl"),
-    "Isolation Forest": load_model("isolation_forest.pkl")
+    "Logistic Regression": load_model("models/logistic_regression.pkl"),
+    "Random Forest": load_model("models/random_forest.pkl"),
+    "XGBoost": load_model("models/xgboost_model.pkl"),
+    "Isolation Forest": load_model("models/isolation_forest.pkl")
 }
 
-# ---------------------------------------------------------
+# =========================================================
 # SIDEBAR NAVIGATION
-# ---------------------------------------------------------
+# =========================================================
 st.sidebar.title("📌 Navigation")
 page = st.sidebar.radio(
     "Go to",
@@ -58,108 +75,105 @@ page = st.sidebar.radio(
         "🏠 Home",
         "📊 Dataset Overview",
         "📈 Data Visualizations",
-        "🤖 Model Performance Comparison",
-        "🔍 Predict Fraud (Single Transaction)"
+        "🤖 Model Comparison",
+        "🔍 Predict Fraud"
     ]
 )
 
-# ---------------------------------------------------------
-# PAGE 1 — HOME
-# ---------------------------------------------------------
+# =========================================================
+# PAGE: HOME
+# =========================================================
 if page == "🏠 Home":
     st.title("💳 Credit Card Fraud Detection Dashboard")
     st.markdown("""
     ### 🔍 Overview  
-    This professional dashboard allows you to:
-    - Explore the dataset  
-    - Visualize fraud patterns  
-    - Compare multiple ML models  
-    - Predict fraud for single transactions  
+    This dashboard allows:
+    - Dataset Exploration  
+    - Visual Fraud Analysis  
+    - Model Performance Comparison  
+    - Single Transaction Fraud Prediction  
 
-    **Models included**
+    **Models included:**
     - Logistic Regression  
     - Random Forest  
     - XGBoost  
-    - Isolation Forest (unsupervised)  
+    - Isolation Forest  
     """)
 
-# ---------------------------------------------------------
-# PAGE 2 — DATASET OVERVIEW
-# ---------------------------------------------------------
+# =========================================================
+# PAGE: DATASET OVERVIEW
+# =========================================================
 elif page == "📊 Dataset Overview":
     st.title("📊 Dataset Overview")
-    st.write(df.head())
-    st.write("Shape:", df.shape)
+
+    st.subheader("First 5 Rows")
+    st.dataframe(df.head())
+
+    st.subheader("Dataset Shape")
+    st.write(df.shape)
 
     st.subheader("Missing Values")
     st.write(df.isnull().sum())
 
-    st.subheader("Class Distribution")
-    st.write(df["isFraud"].value_counts())
-
-    fig = px.pie(
-        df,
-        names="isFraud",
-        title="Fraud vs Non-Fraud Distribution",
-        hole=0.4
-    )
+    st.subheader("Fraud Distribution")
+    fig = px.pie(df, names="isFraud", title="Fraud vs Non-Fraud")
     st.plotly_chart(fig)
 
-# ---------------------------------------------------------
-# PAGE 3 — VISUALIZATIONS
-# ---------------------------------------------------------
+# =========================================================
+# PAGE: VISUALIZATIONS
+# =========================================================
 elif page == "📈 Data Visualizations":
-    st.title("📈 Visualizations")
+    st.title("📈 Exploratory Visualizations")
 
     col1, col2 = st.columns(2)
+
     with col1:
-        st.subheader("Transaction Types Count")
-        fig1 = px.bar(df["type"].value_counts(), title="Transaction Type Distribution")
+        st.subheader("Transaction Types")
+        fig1 = px.bar(df["type"].value_counts(), title="Transaction Types")
         st.plotly_chart(fig1)
 
     with col2:
         st.subheader("Fraud Rate by Type")
         fraud_rate = df.groupby("type")["isFraud"].mean()
-        fig2 = px.bar(fraud_rate, title="Fraud Rate by Transaction Type")
+        fig2 = px.bar(fraud_rate, title="Fraud Rate by Type")
         st.plotly_chart(fig2)
 
-    st.subheader("Amount Distribution (Log Scale)")
+    st.subheader("Amount Distribution (Log)")
     df["log_amount"] = np.log1p(df["amount"])
-    fig3 = px.histogram(df, x="log_amount", nbins=100, title="Log Amount Distribution")
+    fig3 = px.histogram(df, x="log_amount", nbins=100)
     st.plotly_chart(fig3)
 
     st.subheader("Correlation Heatmap")
-    corr_cols = ["amount","oldbalanceOrg","newbalanceOrig",
-                 "oldbalanceDest","newbalanceDest","isFraud"]
-    fig4 = px.imshow(df[corr_cols].corr(), text_auto=True, title="Correlation Matrix")
+    corr_cols = ["amount","oldbalanceOrg","newbalanceOrig","oldbalanceDest","newbalanceDest","isFraud"]
+    fig4 = px.imshow(df[corr_cols].corr(), text_auto=True)
     st.plotly_chart(fig4)
 
-# ---------------------------------------------------------
-# PAGE 4 — MODEL PERFORMANCE COMPARISON
-# ---------------------------------------------------------
-elif page == "🤖 Model Performance Comparison":
+# =========================================================
+# PAGE: MODEL COMPARISON
+# =========================================================
+elif page == "🤖 Model Comparison":
     st.title("🤖 Model Performance Comparison")
 
-    for model_name, model in models.items():
-        if model is not None:
-            st.success(f"{model_name} ✔️ Loaded")
+    for name, model in models.items():
+        if model is None:
+            st.error(f"{name}: ❌ Not Found")
         else:
-            st.error(f"{model_name} ❌ NOT found")
+            st.success(f"{name}: ✔ Loaded Successfully")
 
-    st.info("Upload your evaluation metrics section if you want full comparison.")
+    st.info("Upload metrics screenshot or text if you want to display full comparison.")
 
-# ---------------------------------------------------------
-# PAGE 5 — PREDICT FRAUD (SINGLE INPUT)
-# ---------------------------------------------------------
-elif page == "🔍 Predict Fraud (Single Transaction)":
-    st.title("🔍 Single Transaction Fraud Prediction")
+# =========================================================
+# PAGE: SINGLE PREDICTION
+# =========================================================
+elif page == "🔍 Predict Fraud":
+    st.title("🔍 Predict Single Transaction Fraud")
 
     st.write("Enter transaction details below:")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        trans_type = st.selectbox("Transaction Type", df["type"].unique())
+        t_type = st.selectbox("Transaction Type", df["type"].unique())
         amount = st.number_input("Amount", min_value=0.0)
 
     with col2:
@@ -170,39 +184,42 @@ elif page == "🔍 Predict Fraud (Single Transaction)":
         old_dest = st.number_input("Old Balance (Receiver)", min_value=0.0)
         new_dest = st.number_input("New Balance (Receiver)", min_value=0.0)
 
-    balanceDiffOrig = old_org - new_org
-    balanceDiffDest = new_dest - old_dest
+    # Derived features
+    diff_org = old_org - new_org
+    diff_dest = new_dest - old_dest
 
     sample = pd.DataFrame({
-        "type": [trans_type],
+        "type": [t_type],
         "amount": [amount],
         "oldbalanceOrg": [old_org],
         "newbalanceOrig": [new_org],
         "oldbalanceDest": [old_dest],
         "newbalanceDest": [new_dest],
-        "balanceDiffOrig": [balanceDiffOrig],
-        "balanceDiffDest": [balanceDiffDest]
+        "balanceDiffOrig": [diff_org],
+        "balanceDiffDest": [diff_dest]
     })
 
-    st.write("### Input Summary")
+    st.subheader("Input Summary")
     st.dataframe(sample)
 
-    model_choice = st.selectbox(
-        "Choose Model for Prediction",
-        list(models.keys())
-    )
+    model_choice = st.selectbox("Choose Model", list(models.keys()))
 
-    if st.button("Predict Fraud"):
+    if st.button("Predict"):
         model = models[model_choice]
 
         if model is None:
-            st.error("Model file not found!")
+            st.error("Model not found!")
         else:
-            prediction = model.predict(sample)[0]
-            probability = model.predict_proba(sample)[0][1]
+            pred = model.predict(sample)[0]
 
-            if prediction == 1:
-                st.error(f"🚨 Fraud Detected! (Probability: {probability:.2f})")
+            if hasattr(model, "predict_proba"):
+                proba = model.predict_proba(sample)[0][1]
             else:
-                st.success(f"✅ Legitimate Transaction (Probability: {probability:.2f})")
+                proba = 0.00
+
+            if pred == 1:
+                st.error(f"🚨 Fraud Detected! (Prob: {proba:.2f})")
+            else:
+                st.success(f"✅ Legitimate Transaction (Prob: {proba:.2f})")
+
 
