@@ -5,41 +5,36 @@ import joblib
 import requests
 from io import BytesIO
 
-# -------------------------------
-# STREAMLIT CONFIG
-# -------------------------------
+# Streamlit page config
 st.set_page_config(
     page_title="Credit Card Fraud Detection",
     layout="wide"
 )
 
-st.title("💳 Credit Card Fraud Detection")
+st.title("💳 Credit Card Fraud Detection Dashboard")
 
-# -------------------------------
-# LOAD PIPELINE MODEL FROM GITHUB
-# -------------------------------
-MODEL_URL = "https://raw.githubusercontent.com/SUHAASSHETTY/Fraud_Detection_Using_AI/main/fraud_detection_pipeline.pkl"
+# Google Drive model link
+FILE_ID = "1Hjxc5wS13dMRWJkNUhRLEXRPBo5tga0Z"
+MODEL_URL = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 
 @st.cache_data
-def load_model():
+def load_model_from_drive():
     try:
-        resp = requests.get(MODEL_URL)
-        resp.raise_for_status()
-        model = joblib.load(BytesIO(resp.content))
+        response = requests.get(MODEL_URL)
+        response.raise_for_status()
+        model = joblib.load(BytesIO(response.content))
         return model
     except Exception as e:
-        st.error(f"Failed to load model: {e}")
+        st.error(f"Failed to download/load model: {e}")
         return None
 
-model = load_model()
+model = load_model_from_drive()
 if model:
-    st.success("✅ Model loaded successfully!")
+    st.success("✅ Model loaded successfully from Drive!")
 else:
-    st.warning("⚠️ Model not loaded. Check the URL or internet connection.")
+    st.warning("⚠️ Model Not Loaded. Please check link or internet connection.")
 
-# -------------------------------
-# TRANSACTION INPUT FORM
-# -------------------------------
+# Input form
 st.header("🔍 Enter Transaction Details")
 
 col1, col2, col3 = st.columns(3)
@@ -56,11 +51,9 @@ with col3:
     old_dest = st.number_input("Receiver Old Balance ($)", min_value=0.0, value=500.0)
     new_dest = st.number_input("Receiver New Balance ($)", min_value=0.0, value=600.0)
 
-# Compute balance differences
 diff_org = old_org - new_org
 diff_dest = new_dest - old_dest
 
-# Prepare DataFrame
 sample = pd.DataFrame({
     "type": [trans_type],
     "amount": [amount],
@@ -75,21 +68,20 @@ sample = pd.DataFrame({
 st.subheader("Transaction Summary")
 st.dataframe(sample)
 
-# -------------------------------
-# PREDICTION
-# -------------------------------
+# Prediction
 if st.button("Predict Fraud"):
     if model is None:
         st.error("❌ Model not loaded.")
     else:
         try:
-            prediction = model.predict(sample)[0]
+            pred = model.predict(sample)[0]
             proba = model.predict_proba(sample)[0][1] if hasattr(model, "predict_proba") else 0.0
 
-            if prediction == 1:
+            if pred == 1:
                 st.error(f"🚨 Fraud Detected! (Probability: {proba:.2f})")
             else:
                 st.success(f"✅ Legit Transaction (Probability: {proba:.2f})")
         except Exception as e:
-            st.error(f"Prediction failed: {e}")
+            st.error(f"Prediction Error: {e}")
+
 
